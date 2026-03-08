@@ -9,7 +9,7 @@ interface Bus {
   type: "standard" | "luxury" | "sleeper"
   capacity: number
   plateNumber: string
-  status: "active" | "maintenance" | "inactive"
+  status: "active" | "maintenance"
 }
 
 const initialBuses: Bus[] = [
@@ -260,7 +260,6 @@ export default function FleetPage() {
                 >
                   <option value="active">Active</option>
                   <option value="maintenance">Maintenance</option>
-                  <option value="inactive">Inactive</option>
                 </select>
               </div>
 

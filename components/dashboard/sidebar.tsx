@@ -1,22 +1,30 @@
-"use client"
-
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth, type UserRole } from "@/contexts/auth-context"
-import { 
-  Bus, 
-  LayoutDashboard, 
-  Users, 
-  Truck, 
-  Calendar, 
-  Gift, 
-  Settings, 
+import { useToast } from "@/hooks/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Bus,
+  LayoutDashboard,
+  Users,
+  Truck,
+  Calendar,
+  Gift,
+  Settings,
   LogOut,
   CheckCircle,
   Search,
   ClipboardList,
   X,
-  Menu
+  Menu,
+  CreditCard,
+  AlertCircle
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -33,12 +41,13 @@ const navItems: NavItem[] = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard, roles: ["admin"] },
   { label: "Pending Approvals", href: "/admin/approvals", icon: CheckCircle, roles: ["admin"] },
   { label: "Users", href: "/admin/users", icon: Users, roles: ["admin"] },
-  
+
   // Owner
   { label: "Dashboard", href: "/owner/dashboard", icon: LayoutDashboard, roles: ["owner"] },
   { label: "My Fleet", href: "/owner/fleet", icon: Truck, roles: ["owner"] },
   { label: "Booking Requests", href: "/owner/bookings", icon: ClipboardList, roles: ["owner"] },
-  
+  { label: "Subscription", href: "/owner/subscription", icon: CreditCard, roles: ["owner"] },
+
   // Customer
   { label: "Book a Trip", href: "/dashboard/user", icon: Search, roles: ["customer"] },
   { label: "My Trips", href: "/dashboard/user/trips", icon: Calendar, roles: ["customer"] },
@@ -48,7 +57,30 @@ const navItems: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuth()
   const pathname = usePathname()
+  const { toast } = useToast()
   const [isMobileOpen, setIsMobileOpen] = useState(false)
+
+  // Report Issue State
+  const [isReportOpen, setIsReportOpen] = useState(false)
+  const [reportTitle, setReportTitle] = useState("")
+  const [reportSeverity, setReportSeverity] = useState("low")
+  const [reportDescription, setReportDescription] = useState("")
+
+  const handleReportSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!reportTitle || !reportDescription) return
+
+    // In a real app, this would POST to an API
+    toast({
+      title: "Issue Reported",
+      description: "Admin has been notified. They will review this shortly.",
+    })
+
+    setIsReportOpen(false)
+    setReportTitle("")
+    setReportSeverity("low")
+    setReportDescription("")
+  }
 
   if (!user) return null
 
@@ -78,7 +110,7 @@ export function Sidebar() {
               <span>{user.trialDaysLeft} days left</span>
             </div>
             <div className="h-1 bg-sidebar-border rounded-full overflow-hidden">
-              <div 
+              <div
                 className="h-full bg-accent transition-all"
                 style={{ width: `${(user.trialDaysLeft / 30) * 100}%` }}
               />
@@ -99,8 +131,8 @@ export function Sidebar() {
               onClick={() => setIsMobileOpen(false)}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 text-sm transition-colors rounded-sm",
-                isActive 
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground" 
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
               )}
             >
@@ -113,6 +145,69 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-3 py-4 border-t border-sidebar-border space-y-1">
+        {user.role !== "admin" && (
+          <Dialog open={isReportOpen} onOpenChange={setIsReportOpen}>
+            <DialogTrigger asChild>
+              <button
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-amber-500 hover:text-amber-600 hover:bg-sidebar-accent/50 transition-colors rounded-sm"
+              >
+                <AlertCircle className="h-4 w-4" strokeWidth={1.5} />
+                Report Issue
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Report an Issue</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleReportSubmit} className="space-y-4 pt-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Issue Title</label>
+                  <input
+                    type="text"
+                    required
+                    value={reportTitle}
+                    onChange={(e) => setReportTitle(e.target.value)}
+                    placeholder="Brief summary of the problem"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-transparent focus:outline-none focus:border-foreground text-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Severity</label>
+                  <select
+                    value={reportSeverity}
+                    onChange={(e) => setReportSeverity(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-md bg-transparent focus:outline-none focus:border-foreground text-sm"
+                  >
+                    <option value="high">High (Immediate attention needed)</option>
+                    <option value="medium">Medium (Impacting usage)</option>
+                    <option value="low">Low (Minor bug or glitch)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Description</label>
+                  <textarea
+                    required
+                    value={reportDescription}
+                    onChange={(e) => setReportDescription(e.target.value)}
+                    placeholder="Provide details about what happened..."
+                    className="w-full px-3 py-2 border border-border rounded-md bg-transparent focus:outline-none focus:border-foreground text-sm min-h-[100px] resize-none"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={!reportTitle || !reportDescription}
+                  className="w-full px-4 py-2 bg-foreground text-background text-sm font-medium rounded-md hover:bg-foreground/90 transition-colors disabled:opacity-50"
+                >
+                  Submit Report
+                </button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
+
         <Link
           href="/settings"
           className="flex items-center gap-3 px-3 py-2.5 text-sm text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors rounded-sm"
@@ -149,7 +244,7 @@ export function Sidebar() {
 
       {/* Mobile Sidebar Overlay */}
       {isMobileOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 z-50 bg-foreground/20 backdrop-blur-sm"
           onClick={() => setIsMobileOpen(false)}
         />

@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  role      String   @default("customer") // "customer", "owner", "admin"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  buses     Bus[]    @relation("OwnerBuses")
+  trips     Trip[]   @relation("UserTrips")
+}
+
+model Bus {
+  id          String   @id @default(uuid())
+  name        String
+  plateNumber String   @unique
+  type        String   // "standard", "luxury", "sleeper"
+  capacity    Int
+  status      String   @default("active") // "active", "maintenance"
+  
+  ownerId     String
+  owner       User     @relation("OwnerBuses", fields: [ownerId], references: [id])
+  trips       Trip[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Trip {
+  id               String   @id @default(uuid())
+  pickup           String
+  destination      String
+  date             DateTime
+  departureTime    String
+  arrivalTime      String
+  passengers       Int
+  status           String   @default("requested") // "requested", "quoted", "booked", "completed", "cancelled"
+  totalPaid        Float    @default(0)
+  
+  userId           String
+  user             User     @relation("UserTrips", fields: [userId], references: [id])
+  
+  busId            String?
+  bus              Bus?     @relation(fields: [busId], references: [id])
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model SystemAlert {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  severity    String   // "high", "medium", "low"
+  type        String   // "user", "owner", "system"
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
