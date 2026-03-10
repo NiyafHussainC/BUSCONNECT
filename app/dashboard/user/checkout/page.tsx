@@ -3,9 +3,17 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import Script from "next/script"
 import { useAuth } from "@/contexts/auth-context"
-import { ArrowLeft, MapPin, Calendar, Users, Send, Map, ClipboardList, Loader2, IndianRupee } from "lucide-react"
+import { ArrowLeft, MapPin, Calendar, Users, Map, ClipboardList, Loader2, IndianRupee, Landmark } from "lucide-react"
 import { BookingStepper } from "@/components/booking/booking-stepper"
+
+// Define Razorpay Window Types
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 interface BookingData {
   id: string
@@ -82,28 +90,105 @@ export default function CheckoutPage() {
   const estimatedPrice = (bookingData.priceRange.min + bookingData.priceRange.max) / 2
   const isRoundTrip = bookingData.searchData.tripType === "round-trip"
 
-  if (requestSent) {
-    return (
-      <div className="max-w-xl mx-auto space-y-8 py-12 text-center">
-        <div className="w-16 h-16 bg-primary/10 text-primary rounded-full flex items-center justify-center mx-auto mb-6">
-          <Send className="h-8 w-8 ml-1" />
-        </div>
-        <h1 className="text-3xl font-light tracking-tight">Request Sent Successfully</h1>
-        <p className="text-muted-foreground mt-4 text-left p-6 border border-border bg-card">
-          Your request has been sent to the bus owner. They will review availability and send you a quote shortly.
-        </p>
-        <Link
-          href="/dashboard/user/trips"
-          className="inline-flex items-center justify-center gap-2 px-8 py-3 bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          View My Trips
-        </Link>
-      </div>
-    )
+  const handlePayment = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!bookingData || !user) {
+      alert("Please ensure you are logged in and have selected a bus.")
+      return
+    }
+
+    setIsProcessing(true)
+
+    try {
+      // 1. Create order on backend
+      const res = await fetch("/api/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: estimatedPrice }),
+      })
+
+      const order = await res.json()
+      if (!res.ok) throw new Error(order.error || "Failed to create order")
+
+      // Generate a mock unique ID for the booking/trip context (would come from DB in reality)
+      const mockTripId = Date.now().toString()
+
+      // 2. Initialize Razorpay Checkout
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency,
+        name: "BusConnect",
+        description: "Bus Ticket Booking",
+        order_id: order.id,
+        handler: async function (response: any) {
+          // 3. Verify Payment on Backend
+          try {
+            const verifyRes = await fetch("/api/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                tripId: mockTripId, // mock relation
+                userId: user.id,
+                amount: order.amount,
+              }),
+            })
+
+            const verifyData = await verifyRes.json()
+
+            if (verifyData.success) {
+              // Redirect to success page on confirmation
+              const params = new URLSearchParams({
+                booking_id: mockTripId,
+                bus_name: bookingData.busName,
+                source: bookingData.searchData.pickupDistrict,
+                destination: exactDestination || "Selected Destination",
+                date: bookingData.searchData.date,
+                payment_id: response.razorpay_payment_id,
+                amount: estimatedPrice.toString()
+              })
+
+              router.push(`/booking-success?${params.toString()}`)
+            } else {
+              alert("Payment verification failed! Please contact support.")
+              setIsProcessing(false)
+            }
+          } catch (err) {
+            console.error(err)
+            alert("Error verifying payment signature.")
+            setIsProcessing(false)
+          }
+        },
+        prefill: {
+          name: user.name || "Customer",
+          email: user.email || "customer@example.com",
+          contact: user.mobile || "9999999999",
+        },
+        theme: {
+          color: "#0f172a", // slate-900 acting as primary
+        },
+      }
+
+      const rzp = new window.Razorpay(options)
+      rzp.on("payment.failed", function (response: any) {
+        alert(`Payment failed! Reason: ${response.error.description}`)
+        setIsProcessing(false)
+      })
+
+      rzp.open()
+    } catch (err) {
+      console.error(err)
+      alert("Failed to initiate payment. Please try again.")
+      setIsProcessing(false)
+    }
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" />
       {/* Progress Stepper */}
       <BookingStepper currentStep={3} />
 
@@ -116,8 +201,8 @@ export default function CheckoutPage() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h1 className="text-2xl font-light tracking-tight">Send Booking Request</h1>
-          <p className="text-sm text-muted-foreground mt-1">Provide trip details to request a quote from the owner</p>
+          <h1 className="text-2xl font-light tracking-tight">Confirm & Pay</h1>
+          <p className="text-sm text-muted-foreground mt-1">Review trip details and securely complete your booking</p>
         </div>
       </div>
 
@@ -164,7 +249,7 @@ export default function CheckoutPage() {
           </div>
 
           {/* Request Details Form */}
-          <form id="request-form" onSubmit={handleSendRequest} className="p-6 border border-border bg-card">
+          <form id="payment-form" onSubmit={handlePayment} className="p-6 border border-border bg-card">
             <h2 className="text-sm uppercase tracking-wider text-muted-foreground mb-6">Trip Details</h2>
 
             <div className="space-y-6">
@@ -220,23 +305,28 @@ export default function CheckoutPage() {
         {/* Action Sidebar */}
         <div className="lg:col-span-1">
           <div className="p-6 border border-border sticky top-6 bg-card">
-            <h2 className="text-sm uppercase tracking-wider text-muted-foreground mb-4">Quote Information</h2>
+            <h2 className="text-sm uppercase tracking-wider text-muted-foreground mb-4">Payment Summary</h2>
 
             <div className="py-4 space-y-4 border-b border-border">
-              <p className="text-xs text-muted-foreground">
-                The final quote will be provided by the owner after reviewing your request details.
-              </p>
+              <div className="flex justify-between items-center text-sm">
+                <p className="text-muted-foreground">Base Ticket Fare</p>
+                <p>₹{estimatedPrice}</p>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <p className="text-muted-foreground">Taxes & Fees</p>
+                <p>₹0</p>
+              </div>
 
-              <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 p-3 rounded-md">
-                <IndianRupee className="h-4 w-4 text-foreground shrink-0 mt-0.5" />
-                <p>No payment is required right now. You will be asked for a 20% advance only after accepting the owner&apos;s quote.</p>
+              <div className="pt-4 mt-4 border-t border-border flex justify-between items-center text-lg font-medium">
+                <p>Total Payload</p>
+                <p>₹{estimatedPrice}</p>
               </div>
             </div>
 
             <div className="mt-6">
               <button
                 type="submit"
-                form="request-form"
+                form="payment-form"
                 disabled={isProcessing}
                 className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors rounded-md disabled:opacity-50"
               >
@@ -244,12 +334,14 @@ export default function CheckoutPage() {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <Send className="h-4 w-4" />
-                    Send Request to Owner
+                    <Landmark className="h-4 w-4" />
+                    Pay Now (₹{estimatedPrice})
                   </>
                 )}
               </button>
             </div>
+
+            <p className="text-[10px] text-muted-foreground text-center mt-4 uppercase tracking-wider">Secure Payments Powered By Razorpay</p>
           </div>
         </div>
       </div>

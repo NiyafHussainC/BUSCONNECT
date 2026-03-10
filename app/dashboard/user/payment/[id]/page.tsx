@@ -3,7 +3,16 @@
 import { useState, useEffect, use } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import Script from "next/script"
+import { useAuth } from "@/contexts/auth-context"
 import { ArrowLeft, CreditCard, Ticket, Check, AlertCircle, Loader2, Bus } from "lucide-react"
+
+// Define Razorpay Window Types
+declare global {
+    interface Window {
+        Razorpay: any;
+    }
+}
 
 // Trip Interface matches the one in trips/page.tsx
 type TripStatus = "requested" | "quoted" | "booked" | "completed" | "cancelled" | "declined"
@@ -27,6 +36,7 @@ interface Trip {
 
 export default function PaymentPage({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter()
+    const { user } = useAuth()
     const resolvedParams = use(params)
     const [trip, setTrip] = useState<Trip | null>(null)
 
@@ -74,26 +84,103 @@ export default function PaymentPage({ params }: { params: Promise<{ id: string }
     }
 
     const handlePayment = async () => {
-        setIsProcessing(true)
-
-        // Simulate payment processing time
-        await new Promise(resolve => setTimeout(resolve, 2000))
-
-        // Update persistent storage to booked
-        const stored = localStorage.getItem("busconnect_trips")
-        if (stored) {
-            const parsed: Trip[] = JSON.parse(stored)
-            const updated = parsed.map(t =>
-                t.id === trip.id ? { ...t, status: "booked" as TripStatus } : t
-            )
-            localStorage.setItem("busconnect_trips", JSON.stringify(updated))
+        console.log("Starting handlePayment process");
+        if (!user || !trip) {
+            console.log("Missing user or trip:", { user, trip });
+            return;
         }
 
-        router.push("/dashboard/user/trips?success=true")
+        setIsProcessing(true)
+
+        try {
+            console.log("Sending order request to /api/create-order with amount:", finalAmount);
+            // 1. Create order on backend for the advance payment
+            const res = await fetch("/api/create-order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ amount: finalAmount }),
+            })
+
+            const order = await res.json()
+            console.log("Order response:", order);
+
+            if (!res.ok) throw new Error(order.error || "Failed to create order")
+
+            // 2. Initialize Razorpay Checkout
+            const options = {
+                key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+                amount: order.amount,
+                currency: order.currency,
+                name: "BusConnect",
+                description: `Advance Payment for Trip ${trip.id}`,
+                order_id: order.id,
+                handler: async function (response: any) {
+                    // 3. Verify Payment on Backend
+                    try {
+                        const verifyRes = await fetch("/api/verify-payment", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature,
+                                tripId: trip.id,
+                                userId: user.id,
+                                amount: order.amount,
+                            }),
+                        })
+
+                        const verifyData = await verifyRes.json()
+
+                        if (verifyData.success) {
+                            // Update persistent storage to booked on success
+                            const stored = localStorage.getItem("busconnect_trips")
+                            if (stored) {
+                                const parsed: Trip[] = JSON.parse(stored)
+                                const updated = parsed.map(t =>
+                                    t.id === trip.id ? { ...t, status: "booked" as TripStatus } : t
+                                )
+                                localStorage.setItem("busconnect_trips", JSON.stringify(updated))
+                            }
+                            router.push("/dashboard/user/trips?success=true")
+                        } else {
+                            alert("Payment verification failed! Please contact support.")
+                            setIsProcessing(false)
+                        }
+                    } catch (err) {
+                        console.error(err)
+                        alert("Error verifying payment signature.")
+                        setIsProcessing(false)
+                    }
+                },
+                prefill: {
+                    name: user.name || "Customer",
+                    email: user.email || "customer@example.com",
+                    contact: user.mobile || "9999999999",
+                },
+                theme: {
+                    color: "#0f172a",
+                },
+            }
+
+            const rzp = new window.Razorpay(options)
+            rzp.on("payment.failed", function (response: any) {
+                alert(`Payment failed! Reason: ${response.error.description}`)
+                setIsProcessing(false)
+            })
+
+            rzp.open()
+        } catch (err) {
+            console.error(err)
+            alert("Failed to initiate advance payment. Please try again.")
+            setIsProcessing(false)
+        }
     }
 
     return (
         <div className="max-w-2xl mx-auto space-y-8">
+            <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+
             {/* Header */}
             <div className="flex items-center gap-4">
                 <Link

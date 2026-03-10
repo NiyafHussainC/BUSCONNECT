@@ -125,6 +125,7 @@ export default function TripsPage() {
         },
       ]
       setTrips(mockTrips)
+      localStorage.setItem("busconnect_trips", JSON.stringify(mockTrips))
     }
   }, [trips.length])
 

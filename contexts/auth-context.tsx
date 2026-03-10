@@ -71,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     // Simulate API delay
     await new Promise(resolve => setTimeout(resolve, 800))
-    
+
     const foundUser = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase())
     if (foundUser) {
       setUser(foundUser)
@@ -95,15 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signup = async (data: SignupData) => {
     setIsLoading(true)
     await new Promise(resolve => setTimeout(resolve, 800))
-    
+
     const newUser: User = {
       id: Date.now().toString(),
       email: data.email,
       name: data.name,
       mobile: data.mobile,
       role: data.role,
-      ...(data.role === "owner" && { 
-        ownerStatus: "pending" as OwnerStatus, 
+      ...(data.role === "owner" && {
+        ownerStatus: "pending" as OwnerStatus,
         trialDaysLeft: 30,
         fleetName: data.fleetName,
         operatingCity: data.operatingCity,
@@ -111,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
       ...(data.role === "customer" && { credits: 0 }),
     }
-    
+
     setUser(newUser)
     localStorage.setItem("busconnect_user", JSON.stringify(newUser))
     setIsLoading(false)

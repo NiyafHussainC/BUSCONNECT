@@ -1,10 +1,22 @@
 "use client"
 
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import Script from "next/script"
 import { useAuth } from "@/contexts/auth-context"
-import { Check, ShieldCheck } from "lucide-react"
+import { Check, ShieldCheck, Loader2 } from "lucide-react"
+
+// Define Razorpay Window Types
+declare global {
+    interface Window {
+        Razorpay: any;
+    }
+}
 
 export default function SubscriptionPage() {
-    const { user } = useAuth()
+    const router = useRouter()
+    const { user, updateUser } = useAuth()
+    const [isProcessing, setIsProcessing] = useState<string | null>(null)
 
     // Calculate mock expiry date based on trialDaysLeft
     const mockExpiryDate = new Date()
@@ -15,8 +27,91 @@ export default function SubscriptionPage() {
         year: 'numeric'
     })
 
+    const handleUpgrade = async (planName: string, amount: number, durationDays: number) => {
+        if (!user) return
+
+        setIsProcessing(planName)
+
+        try {
+            // 1. Create order
+            const res = await fetch("/api/create-order", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ amount }),
+            })
+
+            const order = await res.json()
+            if (!res.ok) throw new Error(order.error || "Failed to create order")
+
+            // 2. Initialize Razorpay Checkout
+            const options = {
+                key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+                amount: order.amount,
+                currency: order.currency,
+                name: "BusConnect",
+                description: `${planName} Subscription`,
+                order_id: order.id,
+                handler: async function (response: any) {
+                    // 3. Verify Payment on Backend
+                    try {
+                        const verifyRes = await fetch("/api/verify-subscription", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature,
+                                userId: user.id,
+                                planTier: planName,
+                                durationDays
+                            }),
+                        })
+
+                        const verifyData = await verifyRes.json()
+
+                        if (verifyData.success) {
+                            // Update local context manually to instantly reflect UI change
+                            updateUser({ ...user, role: "owner", trialDaysLeft: durationDays })
+                            alert(`Success! You have been upgraded to the ${planName}.`)
+                            setIsProcessing(null)
+                        } else {
+                            alert("Subscription verification failed! Please contact support.")
+                            setIsProcessing(null)
+                        }
+                    } catch (err) {
+                        console.error(err)
+                        alert("Error verifying payment signature.")
+                        setIsProcessing(null)
+                    }
+                },
+                prefill: {
+                    name: user.name || "Fleet Owner",
+                    email: user.email || "owner@example.com",
+                    contact: user.mobile || "9999999999",
+                },
+                theme: {
+                    color: "#0f172a",
+                },
+            }
+
+            const rzp = new window.Razorpay(options)
+            rzp.on("payment.failed", function (response: any) {
+                alert(`Subscription failed! Reason: ${response.error.description}`)
+                setIsProcessing(null)
+            })
+
+            rzp.open()
+        } catch (err) {
+            console.error(err)
+            alert("Failed to initiate subscription checkout. Please try again.")
+            setIsProcessing(null)
+        }
+    }
+
     return (
         <div className="max-w-5xl mx-auto space-y-12">
+            <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+
             {/* Header */}
             <div className="text-center space-y-2">
                 <h1 className="text-2xl lg:text-3xl font-light tracking-tight">Choose a plan that fits your fleet size and growth goals.</h1>
@@ -79,8 +174,12 @@ export default function SubscriptionPage() {
                         </div>
                     </div>
 
-                    <button className="w-full py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-sm font-medium">
-                        Upgrade Now
+                    <button
+                        onClick={() => handleUpgrade("Basic Plan", 499, 30)}
+                        disabled={isProcessing !== null}
+                        className="w-full py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                        {isProcessing === "Basic Plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Upgrade Now"}
                     </button>
                 </div>
 
@@ -125,8 +224,12 @@ export default function SubscriptionPage() {
                         </div>
                     </div>
 
-                    <button className="w-full py-2.5 px-4 rounded-md bg-foreground text-background hover:bg-foreground/90 transition-colors text-sm font-semibold">
-                        Upgrade Now
+                    <button
+                        onClick={() => handleUpgrade("Standard Plan", 999, 30)}
+                        disabled={isProcessing !== null}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-md bg-foreground text-background hover:bg-foreground/90 transition-colors text-sm font-semibold disabled:opacity-50"
+                    >
+                        {isProcessing === "Standard Plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Upgrade Now"}
                     </button>
                 </div>
 
@@ -167,8 +270,12 @@ export default function SubscriptionPage() {
                         </div>
                     </div>
 
-                    <button className="w-full py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-sm font-medium">
-                        Upgrade Now
+                    <button
+                        onClick={() => handleUpgrade("Premium Plan", 1999, 30)}
+                        disabled={isProcessing !== null}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-md border border-border hover:bg-muted transition-colors text-sm font-medium disabled:opacity-50"
+                    >
+                        {isProcessing === "Premium Plan" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Upgrade Now"}
                     </button>
                 </div>
 

@@ -25,6 +25,7 @@ model User {
   // Relations
   buses     Bus[]    @relation("OwnerBuses")
   trips     Trip[]   @relation("UserTrips")
+  payments  Payment[] @relation("UserPayments")
 }
 
 model Bus {
@@ -51,7 +52,9 @@ model Trip {
   departureTime    String
   arrivalTime      String
   passengers       Int
+  seatNumber       String?
   status           String   @default("requested") // "requested", "quoted", "booked", "completed", "cancelled"
+  paymentStatus    String   @default("pending") // "pending", "paid", "failed"
   totalPaid        Float    @default(0)
   
   userId           String
@@ -60,8 +63,26 @@ model Trip {
   busId            String?
   bus              Bus?     @relation(fields: [busId], references: [id])
   
+  payments         Payment[]
+  
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+model Payment {
+  id                  String   @id @default(uuid())
+  tripId              String
+  userId              String
+  razorpay_order_id   String   @unique
+  razorpay_payment_id String?  @unique
+  amount              Float
+  status              String   @default("pending") // "pending", "completed", "failed"
+  
+  trip                Trip     @relation(fields: [tripId], references: [id])
+  user                User     @relation("UserPayments", fields: [userId], references: [id])
+  
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 model SystemAlert {
