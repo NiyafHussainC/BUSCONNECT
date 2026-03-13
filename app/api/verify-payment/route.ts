@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import prisma from "@/lib/prisma";
+
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     try {
+        const { default: prisma } = await import('@/lib/prisma');
         const crypto = await import('crypto');
         const body = await request.json();
         const {
