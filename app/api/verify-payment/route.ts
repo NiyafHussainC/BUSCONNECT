@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
+
 import prisma from "@/lib/prisma";
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
     try {
+        const crypto = await import('crypto');
         const body = await request.json();
         const {
             razorpay_order_id,
